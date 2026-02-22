@@ -2,6 +2,7 @@ import { Config } from '../config';
 import { WalletService } from '../services/wallet';
 import { JupiterService } from '../services/jupiter';
 import { TokenDataService } from '../services/tokenData';
+import { PriceStreamService } from '../services/priceStream';
 import { StorageService, Trade } from '../utils/storage';
 import { Logger } from '../utils/logger';
 import { BaseStrategy, TradeSignal } from '../strategies/base';
@@ -16,6 +17,7 @@ export class SurviveAgent {
   private wallet: WalletService;
   private jupiter: JupiterService;
   private tokenData: TokenDataService;
+  private priceStream: PriceStreamService;
   private storage: StorageService;
   private strategy: BaseStrategy;
   private profitAllocator: ProfitAllocator;
@@ -40,11 +42,17 @@ export class SurviveAgent {
     this.wallet = new WalletService(config);
     this.jupiter = new JupiterService(this.wallet);
     this.tokenData = new TokenDataService(config.birdeyeApiKey);
+    this.priceStream = new PriceStreamService(config.birdeyeApiKey);
     this.storage = new StorageService();
     
     // Initialize managers
     this.riskManager = new RiskManager(this.storage, config);
-    this.positionManager = new PositionManager(this.storage, this.tokenData, config);
+    this.positionManager = new PositionManager(
+      this.storage, 
+      this.tokenData, 
+      config,
+      this.priceStream // Pass price stream for real-time monitoring
+    );
     this.profitAllocator = new ProfitAllocator(this.storage);
     
     // Initialize strategy
@@ -55,6 +63,25 @@ export class SurviveAgent {
       this.storage,
       config
     );
+    
+    // Setup urgent exit handler
+    this.setupUrgentExitHandler();
+  }
+
+  /**
+   * Setup handler for urgent exits from price stream
+   */
+  private setupUrgentExitHandler(): void {
+    this.positionManager.on('urgent_exit', async (data: {
+      position: EnhancedPosition;
+      reason: string;
+      price: number;
+    }) => {
+      this.logger.warn(`🚨 URGENT EXIT: ${data.position.symbol} - ${data.reason}`);
+      
+      // Execute immediate sell
+      await this.executeSell(data.position, 100);
+    });
   }
 
   async start(): Promise<void> {
@@ -64,6 +91,19 @@ export class SurviveAgent {
     this.logger.info('   Goal: Just Fucking Survive');
     this.logger.info('═'.repeat(60));
     this.logger.info('');
+    
+    // Connect to price stream (if Birdeye API key available)
+    if (this.config.birdeyeApiKey) {
+      this.logger.info('Connecting to price stream...');
+      const connected = await this.priceStream.connect();
+      if (connected) {
+        this.logger.info('✅ Real-time price streaming enabled');
+      } else {
+        this.logger.warn('⚠️  Price streaming unavailable, using polling');
+      }
+    } else {
+      this.logger.warn('⚠️  No Birdeye API key - using polling mode');
+    }
     
     // Log wallet info
     await this.wallet.logStatus();
@@ -105,6 +145,9 @@ export class SurviveAgent {
   async stop(): Promise<void> {
     this.logger.info('Stopping agent...');
     this.isRunning = false;
+    
+    // Disconnect price stream
+    this.priceStream.disconnect();
   }
 
   private async runLoop(): Promise<void> {

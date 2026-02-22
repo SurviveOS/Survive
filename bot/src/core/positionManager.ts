@@ -1,6 +1,7 @@
 import { Logger } from '../utils/logger';
 import { StorageService, Position, Trade } from '../utils/storage';
 import { TokenDataService, TokenInfo } from '../services/tokenData';
+import { PriceStreamService, PriceUpdate } from '../services/priceStream';
 import { Config } from '../config';
 
 export interface PositionConfig {
@@ -53,18 +54,23 @@ export class PositionManager {
   private logger: Logger;
   private storage: StorageService;
   private tokenData: TokenDataService;
+  private priceStream: PriceStreamService | null;
   private config: PositionConfig;
   private positions: Map<string, EnhancedPosition>;
+  private streamPrices: Map<string, number>; // Real-time prices from stream
 
   constructor(
     storage: StorageService,
     tokenData: TokenDataService,
     tradingConfig: Config,
+    priceStream?: PriceStreamService,
     customConfig?: Partial<PositionConfig>
   ) {
     this.logger = new Logger('PositionManager');
     this.storage = storage;
     this.tokenData = tokenData;
+    this.priceStream = priceStream || null;
+    this.streamPrices = new Map();
     
     // Default position management config
     this.config = {
@@ -83,7 +89,131 @@ export class PositionManager {
     this.positions = new Map();
     this.loadPositions();
     
+    // Subscribe to price stream for existing positions
+    if (this.priceStream) {
+      this.setupPriceStreamListeners();
+    }
+    
     this.logger.info('Position Manager initialized');
+  }
+
+  /**
+   * Setup price stream listeners for real-time updates
+   */
+  private setupPriceStreamListeners(): void {
+    if (!this.priceStream) return;
+
+    // Listen for price updates
+    this.priceStream.on('price', (update: PriceUpdate) => {
+      this.handlePriceUpdate(update);
+    });
+
+    // Subscribe to all existing positions
+    for (const [mint, position] of this.positions) {
+      this.priceStream.subscribe(mint, (update) => {
+        this.streamPrices.set(mint, update.price);
+      });
+      this.logger.info(`Subscribed to price stream for ${position.symbol}`);
+    }
+  }
+
+  /**
+   * Handle real-time price update
+   */
+  private handlePriceUpdate(update: PriceUpdate): void {
+    const position = this.positions.get(update.address);
+    if (!position) return;
+
+    this.streamPrices.set(update.address, update.price);
+    
+    // Update high/low
+    if (update.price > position.highestPrice) {
+      position.highestPrice = update.price;
+    }
+    if (update.price < position.lowestPrice) {
+      position.lowestPrice = update.price;
+    }
+
+    // Update trailing stop
+    this.updateTrailingStopFromStream(position, update.price);
+
+    // Check for urgent exits (stop loss hit)
+    const pnlPercent = ((update.price - position.entryPrice) / position.entryPrice) * 100;
+    
+    if (pnlPercent <= -this.config.stopLossPercent) {
+      this.logger.warn(`🚨 STOP LOSS HIT: ${position.symbol} at ${pnlPercent.toFixed(1)}%`);
+      // Emit urgent exit signal
+      this.emit('urgent_exit', {
+        position,
+        reason: `Stop loss hit: ${pnlPercent.toFixed(1)}%`,
+        price: update.price,
+      });
+    }
+
+    if (position.trailingStopPrice && update.price <= position.trailingStopPrice) {
+      this.logger.warn(`🚨 TRAILING STOP HIT: ${position.symbol}`);
+      this.emit('urgent_exit', {
+        position,
+        reason: 'Trailing stop hit',
+        price: update.price,
+      });
+    }
+  }
+
+  /**
+   * Emit events (simple implementation)
+   */
+  private eventListeners: Map<string, Function[]> = new Map();
+  
+  on(event: string, callback: Function): void {
+    const listeners = this.eventListeners.get(event) || [];
+    listeners.push(callback);
+    this.eventListeners.set(event, listeners);
+  }
+
+  private emit(event: string, data: any): void {
+    const listeners = this.eventListeners.get(event) || [];
+    for (const listener of listeners) {
+      try {
+        listener(data);
+      } catch (e) {
+        this.logger.error(`Event listener error: ${e}`);
+      }
+    }
+  }
+
+  /**
+   * Update trailing stop from stream price
+   */
+  private updateTrailingStopFromStream(position: EnhancedPosition, currentPrice: number): void {
+    const pnlPercent = ((currentPrice - position.entryPrice) / position.entryPrice) * 100;
+
+    if (pnlPercent >= this.config.trailingActivationPercent) {
+      const newTrailingStop = position.highestPrice * (1 - this.config.trailingStopPercent / 100);
+      
+      if (!position.trailingStopPrice || newTrailingStop > position.trailingStopPrice) {
+        position.trailingStopPrice = newTrailingStop;
+        position.status = 'trailing';
+        this.logger.debug(
+          `${position.symbol} trailing stop: ${newTrailingStop.toFixed(6)}`
+        );
+      }
+    }
+  }
+
+  /**
+   * Get real-time price (stream first, then API fallback)
+   */
+  private async getPrice(tokenMint: string): Promise<number | null> {
+    // Try stream price first (faster)
+    const streamPrice = this.streamPrices.get(tokenMint);
+    if (streamPrice) {
+      return streamPrice;
+    }
+
+    // Fallback to API
+    const tokenInfo = await this.tokenData.getTokenInfo(tokenMint);
+    return tokenInfo?.price || null;
   }
 
   /**
@@ -102,7 +232,16 @@ export class PositionManager {
     };
 
     this.positions.set(position.tokenMint, enhanced);
-    this.logger.info(`Position added: ${position.symbol} @ ${position.entryPrice}`);
+    
+    // Subscribe to price stream for real-time monitoring
+    if (this.priceStream) {
+      this.priceStream.subscribe(position.tokenMint, (update) => {
+        this.streamPrices.set(position.tokenMint, update.price);
+      });
+      this.logger.info(`Position added: ${position.symbol} @ ${position.entryPrice} (streaming)`);
+    } else {
+      this.logger.info(`Position added: ${position.symbol} @ ${position.entryPrice}`);
+    }
     
     return enhanced;
   }
@@ -114,33 +253,61 @@ export class PositionManager {
     const signals: PositionSignal[] = [];
 
     for (const [mint, position] of this.positions) {
-      const tokenInfo = await this.tokenData.getTokenInfo(mint);
-      if (!tokenInfo) {
-        this.logger.warn(`Could not get price for ${position.symbol}`);
-        continue;
+      // Try stream price first, fall back to API
+      let currentPrice = this.streamPrices.get(mint);
+      let tokenInfo: TokenInfo | null = null;
+      
+      if (!currentPrice) {
+        tokenInfo = await this.tokenData.getTokenInfo(mint);
+        if (!tokenInfo) {
+          this.logger.warn(`Could not get price for ${position.symbol}`);
+          continue;
+        }
+        currentPrice = tokenInfo.price;
       }
 
-      const signal = this.evaluatePosition(position, tokenInfo);
+      const signal = this.evaluatePositionWithPrice(position, currentPrice);
       signals.push(signal);
 
       // Update position tracking
       position.lastChecked = new Date();
       position.checkCount++;
       
-      // Update high/low
-      if (tokenInfo.price > position.highestPrice) {
-        position.highestPrice = tokenInfo.price;
-        this.logger.debug(`${position.symbol} new high: ${tokenInfo.price}`);
+      // Update high/low (also updated in stream handler)
+      if (currentPrice > position.highestPrice) {
+        position.highestPrice = currentPrice;
+        this.logger.debug(`${position.symbol} new high: ${currentPrice}`);
       }
-      if (tokenInfo.price < position.lowestPrice) {
-        position.lowestPrice = tokenInfo.price;
+      if (currentPrice < position.lowestPrice) {
+        position.lowestPrice = currentPrice;
       }
 
       // Update trailing stop if activated
-      this.updateTrailingStop(position, tokenInfo);
+      if (tokenInfo) {
+        this.updateTrailingStop(position, tokenInfo);
+      }
     }
 
     return signals;
+  }
+
+  /**
+   * Evaluate position with just price (for stream updates)
+   */
+  private evaluatePositionWithPrice(position: EnhancedPosition, currentPrice: number): PositionSignal {
+    // Create a minimal TokenInfo for evaluation
+    const tokenInfo: TokenInfo = {
+      address: position.tokenMint,
+      symbol: position.symbol,
+      name: position.symbol,
+      decimals: 9,
+      price: currentPrice,
+      priceChange24h: 0,
+      volume24h: 0,
+      liquidity: 0,
+      marketCap: 0,
+    };
+    return this.evaluatePosition(position, tokenInfo);
   }
 
   /**
@@ -284,6 +451,13 @@ export class PositionManager {
     if (!position) return null;
 
     this.positions.delete(tokenMint);
+    this.streamPrices.delete(tokenMint);
+    
+    // Unsubscribe from price stream
+    if (this.priceStream) {
+      this.priceStream.unsubscribe(tokenMint);
+    }
+    
     this.logger.info(`Position removed: ${position.symbol}`);
     
     return position;
