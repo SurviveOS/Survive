@@ -6,6 +6,9 @@ import { Logger } from '../utils/logger';
 import { Config } from '../config';
 import { v4 as uuidv4 } from 'uuid';
 
+// Re-export for strategy implementations
+export { TokenInfo } from '../services/tokenData';
+
 export interface TradeSignal {
   type: 'buy' | 'sell';
   tokenMint: string;
