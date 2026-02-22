@@ -481,28 +481,10 @@ MIT License - see [LICENSE](LICENSE) for details.
 ## 🔗 Links
 
 - **GitHub**: https://github.com/SurviveOS/Survive
-
+- **Twitter**: https://x.com/surviveOS
+- **Website**: https://surviveos.tech
 ---
 
-## 🤔 FAQ
-
-**Q: Is there an official $SURVIVE token?**
-
-A: No. This is an open-source framework. Each person who deploys the bot creates their own independent token. There is no "official" token.
-
-**Q: Can multiple agents use the same token?**
-
-A: Technically yes, but each agent is designed to create and manage its own token. You can modify the code to use an existing token if needed.
-
-**Q: Do I need to launch a token to use this?**
-
-A: The survival mechanism requires a token, but you could modify the code to skip token management and just trade.
-
-**Q: How much SOL do I need to start?**
-
-A: Recommended minimum is 5-10 SOL for trading capital, plus 1 SOL for initial token launch.
-
----
 
 <div align="center">
 
