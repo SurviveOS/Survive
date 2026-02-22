@@ -10,6 +10,7 @@ import { MomentumStrategy } from '../strategies/momentum';
 import { ProfitAllocator, OperatingState } from './profitAllocator';
 import { RiskManager, RiskCheckResult } from './riskManager';
 import { PositionManager, PositionSignal, EnhancedPosition } from './positionManager';
+import { SurvivalManager, SurvivalDecision } from './survivalManager';
 import { v4 as uuidv4 } from 'uuid';
 
 export class SurviveAgent {
@@ -23,6 +24,7 @@ export class SurviveAgent {
   private profitAllocator: ProfitAllocator;
   private riskManager: RiskManager;
   private positionManager: PositionManager;
+  private survivalManager: SurvivalManager;
   private logger: Logger;
   private isRunning: boolean = false;
   
@@ -54,6 +56,13 @@ export class SurviveAgent {
       this.priceStream // Pass price stream for real-time monitoring
     );
     this.profitAllocator = new ProfitAllocator(this.storage);
+    this.survivalManager = new SurvivalManager(
+      this.storage,
+      this.wallet,
+      this.jupiter,
+      this.tokenData,
+      config
+    );
     
     // Initialize strategy
     this.strategy = new MomentumStrategy(
@@ -111,6 +120,21 @@ export class SurviveAgent {
     
     // Initialize risk manager with current balance
     this.riskManager.updatePeakBalance(balance);
+
+    // Check if we need to launch $SURVIVE token
+    if (this.survivalManager.needsTokenLaunch()) {
+      this.logger.info('');
+      this.logger.info('🦎 $SURVIVE token not launched yet');
+      this.logger.info('   Call agent.launchSurviveToken() to launch');
+      this.logger.info('');
+    } else {
+      const survivalState = this.survivalManager.getState();
+      this.logger.info('');
+      this.logger.info(`🦎 $SURVIVE Token: ${survivalState.tokenMint}`);
+      this.logger.info(`   Balance: ${survivalState.tokenBalance.toLocaleString()} tokens`);
+      this.logger.info(`   Value: ${survivalState.tokenValueSOL.toFixed(4)} SOL`);
+      this.logger.info('');
+    }
     
     // Log current state
     const stats = this.storage.getStats();
@@ -173,6 +197,19 @@ export class SurviveAgent {
     
     const balance = await this.wallet.getBalance();
     this.riskManager.updatePeakBalance(balance);
+
+    // 0. CHECK SURVIVAL STATUS FIRST
+    const survivalDecision = await this.survivalManager.checkSurvival();
+    this.logger.info(`🦎 ${this.survivalManager.getSummary()}`);
+    
+    // Handle survival actions
+    if (survivalDecision.action === 'sell_token_emergency') {
+      this.logger.warn(`🆘 ${survivalDecision.reason}`);
+      await this.survivalManager.sellForSurvival(survivalDecision.amount);
+    } else if (survivalDecision.action === 'sell_token_partial') {
+      this.logger.warn(`⚠️  ${survivalDecision.reason}`);
+      await this.survivalManager.sellForSurvival(survivalDecision.amount);
+    }
     
     // Check risk mode
     const riskMode = this.riskManager.getSuggestedAction();
@@ -207,8 +244,8 @@ export class SurviveAgent {
       this.logger.info('⚡ Conservative mode: Skipping new entries');
     }
 
-    // 3. Execute pending buybacks
-    await this.executeBuybackIfReady();
+    // 3. Execute pending $SURVIVE buybacks (NOT old profit allocation)
+    // Now handled by survivalManager
 
     // 4. Log status
     await this.logStatus();
@@ -370,30 +407,16 @@ export class SurviveAgent {
   }
 
   /**
-   * Handle profit with dynamic allocation
+   * Handle profit - buy $SURVIVE with portion of profits
    */
   private async handleProfit(profit: number): Promise<void> {
     if (profit <= 0) return;
 
     this.logger.info(`💰 Profit received: ${profit.toFixed(4)} SOL`);
 
-    const balance = await this.wallet.getBalance();
-    
-    const state: OperatingState = {
-      currentBalance: balance,
-      monthlyOperatingCost: this.config.monthlyOperatingCostSol,
-      operatingReserve: this.operatingReserve,
-      capitalTarget: this.config.capitalTargetSol,
-      surviveTokenMint: this.config.surviveTokenMint,
-      recentProfitability: this.calculateWinRate(),
-    };
-
-    const decision = this.profitAllocator.allocate(profit, state);
-
-    this.operatingReserve += decision.operatingCosts;
-    this.pendingBuyback += decision.tokenBuyback;
-
-    this.logger.info(`📊 Allocation: ${decision.reasoning}`);
+    // Use survival manager to handle profit
+    // This will buy $SURVIVE with a portion of profits
+    await this.survivalManager.handleProfit(profit);
   }
 
   /**
@@ -519,16 +542,70 @@ export class SurviveAgent {
    * Export data for dashboard
    */
   getDashboardData() {
+    const survivalState = this.survivalManager.getState();
+    
     return {
       wallet: this.wallet.address,
-      surviveToken: this.config.surviveTokenMint,
-      operatingReserve: this.operatingReserve,
-      pendingBuyback: this.pendingBuyback,
+      surviveToken: survivalState.tokenMint,
+      surviveBalance: survivalState.tokenBalance,
+      surviveValueSOL: survivalState.tokenValueSOL,
+      survivalStatus: survivalState.status,
+      survivalSellCount: survivalState.survivalSellCount,
       riskState: this.riskManager.getState(),
       riskLimits: this.riskManager.getLimits(),
       positions: this.positionManager.getAllPositions(),
       ...this.storage.exportForDashboard(),
     };
+  }
+
+  /**
+   * Launch the $SURVIVE token on Pump.fun
+   */
+  async launchSurviveToken(initialBuySOL: number = 1): Promise<{
+    success: boolean;
+    mintAddress?: string;
+    error?: string;
+  }> {
+    this.logger.info('═'.repeat(60));
+    this.logger.info('🦎 LAUNCHING $SURVIVE TOKEN ON PUMP.FUN');
+    this.logger.info('═'.repeat(60));
+    
+    const result = await this.survivalManager.launchToken({
+      name: 'SURVIVE',
+      symbol: 'SURVIVE',
+      description: `🦎 SURVIVE - An autonomous AI trading agent fighting to survive on Solana.
+
+I trade meme coins. When I profit, I buy $SURVIVE. When I'm low on funds, I sell $SURVIVE to survive.
+
+Watch me trade, adapt, and grow at survive.ai
+
+100% transparent | 100% autonomous | Just trying to survive.`,
+      website: 'https://survive.ai',
+      twitter: 'https://twitter.com/survive_ai',
+    }, initialBuySOL);
+
+    if (result.success) {
+      this.logger.info('═'.repeat(60));
+      this.logger.info('🎉 $SURVIVE TOKEN LAUNCHED!');
+      this.logger.info(`   Mint: ${result.mintAddress}`);
+      this.logger.info(`   TX: ${result.txSignature}`);
+      this.logger.info('═'.repeat(60));
+    } else {
+      this.logger.error(`Launch failed: ${result.error}`);
+    }
+
+    return {
+      success: result.success,
+      mintAddress: result.mintAddress,
+      error: result.error,
+    };
+  }
+
+  /**
+   * Get survival state
+   */
+  getSurvivalState() {
+    return this.survivalManager.getState();
   }
 
   /**
