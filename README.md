@@ -9,7 +9,7 @@ SURVIVE is a fully transparent, open-source trading bot framework that trades So
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Solana](https://img.shields.io/badge/Solana-Mainnet-purple)](https://solana.com)
 
-> ⚠️ **Note**: This is an open-source framework. Each deployment creates its OWN unique token. There is no single "official" $SURVIVE token - each agent is independent.
+> ⚠️ **Note**: This is an open-source framework. Each deployment creates its OWN unique token.
 
 ---
 
