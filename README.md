@@ -1,11 +1,15 @@
 # 🦎 SURVIVE
 
-**An autonomous AI trading agent with one goal: Just Fucking Survive.**
+**An autonomous AI trading agent framework with one goal: Just Fucking Survive.**
 
-SURVIVE is a fully transparent, open-source trading bot that trades Solana meme coins, manages its own token, and fights to survive. When it profits, it buys $SURVIVE. When it's low on funds, it sells $SURVIVE to stay alive.
+SURVIVE is a fully transparent, open-source trading bot framework that trades Solana meme coins, creates and manages its own token, and fights to survive. When it profits, it buys its token. When it's low on funds, it sells its token to stay alive.
+
+**Deploy your own survival agent. Create your own token. Fight to survive.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Solana](https://img.shields.io/badge/Solana-Mainnet-purple)](https://solana.com)
+
+> ⚠️ **Note**: This is an open-source framework. Each deployment creates its OWN unique token. There is no single "official" $SURVIVE token - each agent is independent.
 
 ---
 
@@ -14,7 +18,8 @@ SURVIVE is a fully transparent, open-source trading bot that trades Solana meme 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                                                                 │
-│   SURVIVE creates its own token on Pump.fun                     │
+│   Agent launches its own token on Pump.fun                      │
+│   (You choose the name: $SURVIVE, $MYBOT, $ANYTHING)            │
 │                        │                                        │
 │                        ▼                                        │
 │   ┌─────────────────────────────────────────────────────────┐  │
@@ -28,14 +33,14 @@ SURVIVE is a fully transparent, open-source trading bot that trades Solana meme 
 │   │      │           │                                       │  │
 │   │      ▼           ▼                                       │  │
 │   │   Buy more    Low on capital?                            │  │
-│   │   $SURVIVE       │                                       │  │
-│   │   & HOLD     ┌───┴───┐                                   │  │
+│   │   of its         │                                       │  │
+│   │   token      ┌───┴───┐                                   │  │
 │   │              │       │                                   │  │
 │   │             YES     NO                                   │  │
 │   │              │       │                                   │  │
 │   │              ▼       ▼                                   │  │
 │   │          Sell some  Keep                                 │  │
-│   │          $SURVIVE   trading                              │  │
+│   │          tokens     trading                              │  │
 │   │          to SURVIVE                                      │  │
 │   └─────────────────────────────────────────────────────────┘  │
 │                                                                 │
@@ -44,7 +49,9 @@ SURVIVE is a fully transparent, open-source trading bot that trades Solana meme 
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-The agent's $SURVIVE token becomes its **store of value**. Good times? Accumulate. Bad times? Liquidate to survive.
+The agent's token becomes its **store of value**. Good times? Accumulate. Bad times? Liquidate to survive.
+
+Each agent deployment is **completely independent** - your agent, your token, your survival journey.
 
 ---
 
@@ -211,14 +218,25 @@ npm run build
 npm start
 ```
 
-### Launching $SURVIVE Token
+### Launching Your Agent's Token
 
-On first run, launch your token:
+On first run, launch your agent's unique token on Pump.fun:
 
 ```typescript
-// In your code or via CLI
-await agent.launchSurviveToken(1); // 1 SOL initial buy
+// Launch with custom metadata
+await agent.launchSurviveToken({
+  name: 'MY_AGENT',           // Your token name
+  symbol: 'AGENT',            // Your token symbol
+  description: 'My autonomous trading agent',
+  website: 'https://myagent.com',
+  twitter: 'https://twitter.com/myagent',
+}, 1); // 1 SOL initial buy
+
+// Or use defaults (creates a token called SURVIVE)
+await agent.launchSurviveToken(1);
 ```
+
+> 💡 **Each deployment creates a NEW token.** There is no shared token between agents. Your agent = your token.
 
 ---
 
@@ -321,28 +339,39 @@ Token Discovery (DexScreener/Birdeye)
 
 ## 🦎 Survival Mechanism
 
+Each agent creates and manages **its own token** as a store of value.
+
+### How It Works
+
+1. **Deploy** → Agent launches its token on Pump.fun
+2. **Trade** → Agent trades meme coins autonomously
+3. **Profit** → Agent buys its own token with 30% of profits
+4. **Survive** → When capital is low, agent sells its token to stay alive
+
 ### Status Levels
 
 | Status | Capital Level | Action |
 |--------|---------------|--------|
 | 💚 Healthy | > 50% | Normal trading |
 | 🟡 Low | 25-50% | Warning, continue |
-| 🟠 Critical | 10-25% | Sell 10% of $SURVIVE |
-| 🔴 Emergency | < 10% | Sell 20% of $SURVIVE |
+| 🟠 Critical | 10-25% | Sell 10% of agent's token |
+| 🔴 Emergency | < 10% | Sell 20% of agent's token |
 
 ### Profit Allocation
 
 When the bot makes profit:
-- **30%** → Buy $SURVIVE (stored value)
+- **30%** → Buy agent's token (stored value)
 - **70%** → Back to trading capital
 
 ### Survival Sell
 
 When capital is critical:
-1. Sell portion of $SURVIVE holdings
+1. Sell portion of agent's token holdings
 2. Convert to SOL
 3. Continue trading
 4. Fight to survive another day
+
+> 🔑 **Key Point**: The token acts as a savings account. Good performance builds the treasury. Bad performance depletes it. The goal is to grow the token holdings while surviving market volatility.
 
 ---
 
@@ -353,7 +382,7 @@ The website displays real-time stats:
 - Wallet balance
 - Total profit/loss
 - Active positions
-- $SURVIVE holdings
+- Agent token holdings
 - Trade history
 - Survival status
 
@@ -451,16 +480,36 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## 🔗 Links
 
-- **Website**: https://survive.ai
 - **GitHub**: https://github.com/SurviveOS/Survive
-- **Twitter**: https://twitter.com/survive_ai
+
+---
+
+## 🤔 FAQ
+
+**Q: Is there an official $SURVIVE token?**
+
+A: No. This is an open-source framework. Each person who deploys the bot creates their own independent token. There is no "official" token.
+
+**Q: Can multiple agents use the same token?**
+
+A: Technically yes, but each agent is designed to create and manage its own token. You can modify the code to use an existing token if needed.
+
+**Q: Do I need to launch a token to use this?**
+
+A: The survival mechanism requires a token, but you could modify the code to skip token management and just trade.
+
+**Q: How much SOL do I need to start?**
+
+A: Recommended minimum is 5-10 SOL for trading capital, plus 1 SOL for initial token launch.
 
 ---
 
 <div align="center">
 
-**🦎 SURVIVE**
+**🦎 SURVIVE FRAMEWORK**
 
-*An AI that just wants to live.*
+*Deploy your own autonomous trading agent.*
+
+*Create your own token. Fight to survive.*
 
 </div>
